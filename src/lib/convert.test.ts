@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { convert, parseJyutping, tokensToHtmlString, escapeHtml } from './convert'
+import {
+  convert,
+  parseJyutping,
+  parseRubyHtml,
+  tokensToHtmlString,
+  escapeHtml,
+} from './convert'
 
 const CHINESE = '你行得上台，唔好怯呀。'
 const JYUTPING = 'nei5 haang4 dak1 soeng5 toi4, m4 hou2 hip3 aa3.'
@@ -77,5 +83,53 @@ describe('tokensToHtmlString', () => {
     expect(escapeHtml('a<b>&c')).toBe('a&lt;b&gt;&amp;c')
     const { tokens } = convert('A & B', 'x')
     expect(tokensToHtmlString(tokens)).toBe('A &amp; B')
+  })
+})
+
+describe('parseRubyHtml', () => {
+  it('round-trips Chinese and mirrors punctuation into jyutping', () => {
+    const html = tokensToHtmlString(convert(CHINESE, JYUTPING).tokens)
+    const out = parseRubyHtml(html)
+    expect(out.chinese).toBe(CHINESE)
+    // Punctuation is mirrored from the HTML (fullwidth, as produced by convert).
+    expect(out.jyutping).toBe(
+      'nei5 haang4 dak1 soeng5 toi4， m4 hou2 hip3 aa3。',
+    )
+    expect(out.rubyCount).toBe(2)
+  })
+
+  it('ignores <rp> fallback parentheses', () => {
+    const out = parseRubyHtml('<ruby>你<rp>(</rp><rt>nei5</rt><rp>)</rp></ruby>')
+    expect(out.chinese).toBe('你')
+    expect(out.jyutping).toBe('nei5')
+  })
+
+  it('handles multiple ruby groups with punctuation between them', () => {
+    const out = parseRubyHtml(
+      '<ruby>你<rt>nei5</rt>好<rt>hou2</rt></ruby>，<ruby>嗎<rt>maa3</rt></ruby>？',
+    )
+    expect(out.chinese).toBe('你好，嗎？')
+    expect(out.jyutping).toBe('nei5 hou2， maa3？')
+    expect(out.rubyCount).toBe(2)
+  })
+
+  it('returns rubyCount 0 and the raw text when there is no ruby markup', () => {
+    const out = parseRubyHtml('just plain text')
+    expect(out.rubyCount).toBe(0)
+    expect(out.chinese).toBe('just plain text')
+    expect(out.jyutping).toBe('just plain text')
+  })
+
+  it('decodes HTML entities', () => {
+    const out = parseRubyHtml('<ruby>A<rt>x</rt></ruby> &amp; B')
+    expect(out.chinese).toBe('A & B')
+  })
+
+  it('ignores newline formatting between pretty-printed ruby groups', () => {
+    const out = parseRubyHtml(
+      '<ruby>你<rt>nei5</rt></ruby>\n<ruby>好<rt>hou2</rt></ruby>',
+    )
+    expect(out.chinese).toBe('你好')
+    expect(out.jyutping).toBe('nei5 hou2')
   })
 })

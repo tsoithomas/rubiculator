@@ -1,8 +1,18 @@
 import { Fragment, useMemo, useState } from 'react'
-import { convert, tokensToHtmlString, type Token } from './lib/convert'
+import {
+  convert,
+  parseRubyHtml,
+  tokensToHtmlString,
+  type Token,
+} from './lib/convert'
+
+type Mode = 'compose' | 'extract'
 
 const EXAMPLE_CHINESE = '你行得上台，唔好怯呀。'
 const EXAMPLE_JYUTPING = 'nei5 haang4 dak1 soeng5 toi4, m4 hou2 hip3 aa3.'
+const EXAMPLE_HTML = tokensToHtmlString(
+  convert(EXAMPLE_CHINESE, EXAMPLE_JYUTPING).tokens,
+)
 
 /** Render the token list as real React nodes for the live preview. */
 function renderTokens(tokens: Token[]) {
@@ -72,26 +82,17 @@ function WarnIcon() {
   )
 }
 
-export default function App() {
-  const [chinese, setChinese] = useState(EXAMPLE_CHINESE)
-  const [jyutping, setJyutping] = useState(EXAMPLE_JYUTPING)
+/** Icon-only copy button that owns its own transient "copied" state. */
+function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false)
-
-  const { tokens, hanCount, syllableCount } = useMemo(
-    () => convert(chinese, jyutping),
-    [chinese, jyutping],
-  )
-
-  const html = useMemo(() => tokensToHtmlString(tokens), [tokens])
-  const mismatch = hanCount !== syllableCount
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(html)
+      await navigator.clipboard.writeText(text)
     } catch {
       // Fallback for environments without the async clipboard API.
       const ta = document.createElement('textarea')
-      ta.value = html
+      ta.value = text
       ta.style.position = 'fixed'
       ta.style.opacity = '0'
       document.body.appendChild(ta)
@@ -104,24 +105,37 @@ export default function App() {
   }
 
   return (
-    <div className="app">
-      <header className="masthead">
-        <div className="wordmark">
-          <span className="seal" aria-hidden="true">粵</span>
-          <div className="wordmark-text">
-            <h1>Rubiculator</h1>
-            <p className="subtitle">Cantonese jyutping ruby typesetting</p>
-          </div>
-        </div>
-      </header>
+    <button
+      type="button"
+      className={`copy-btn${copied ? ' is-copied' : ''}`}
+      onClick={handleCopy}
+      disabled={!text}
+      aria-label={copied ? 'Copied to clipboard' : label}
+      title={copied ? 'Copied' : label}
+    >
+      {copied ? <CheckIcon /> : <CopyIcon />}
+    </button>
+  )
+}
 
+function ComposeView() {
+  const [chinese, setChinese] = useState(EXAMPLE_CHINESE)
+  const [jyutping, setJyutping] = useState(EXAMPLE_JYUTPING)
+
+  const { tokens, hanCount, syllableCount } = useMemo(
+    () => convert(chinese, jyutping),
+    [chinese, jyutping],
+  )
+  const html = useMemo(() => tokensToHtmlString(tokens), [tokens])
+  const mismatch = hanCount !== syllableCount
+
+  return (
+    <>
       <section className="inputs">
         <div className="field">
           <div className="field-head">
             <label htmlFor="chinese-input">Chinese characters</label>
-            <span className="counter">
-              {hanCount} 字
-            </span>
+            <span className="counter">{hanCount} 字</span>
           </div>
           <textarea
             id="chinese-input"
@@ -178,16 +192,7 @@ export default function App() {
       <section className="panel">
         <div className="panel-head">
           <h2>HTML</h2>
-          <button
-            type="button"
-            className={`copy-btn${copied ? ' is-copied' : ''}`}
-            onClick={handleCopy}
-            disabled={!html}
-            aria-label={copied ? 'Copied to clipboard' : 'Copy HTML to clipboard'}
-            title={copied ? 'Copied' : 'Copy HTML'}
-          >
-            {copied ? <CheckIcon /> : <CopyIcon />}
-          </button>
+          <CopyButton text={html} label="Copy HTML" />
         </div>
         {html ? (
           <pre className="code">
@@ -197,6 +202,122 @@ export default function App() {
           <div className="empty">The generated markup will appear here.</div>
         )}
       </section>
+    </>
+  )
+}
+
+function ExtractView() {
+  const [htmlInput, setHtmlInput] = useState(EXAMPLE_HTML)
+
+  const { chinese, jyutping, rubyCount } = useMemo(
+    () => parseRubyHtml(htmlInput),
+    [htmlInput],
+  )
+  const previewTokens = useMemo(
+    () => convert(chinese, jyutping).tokens,
+    [chinese, jyutping],
+  )
+  const hasInput = htmlInput.trim().length > 0
+
+  return (
+    <>
+      <section className="field">
+        <div className="field-head">
+          <label htmlFor="html-input">Ruby HTML</label>
+          {hasInput && rubyCount === 0 && (
+            <span className="counter hint">no &lt;ruby&gt; tags found</span>
+          )}
+        </div>
+        <textarea
+          id="html-input"
+          value={htmlInput}
+          onChange={(e) => setHtmlInput(e.target.value)}
+          rows={6}
+          spellCheck={false}
+          className="mono"
+          placeholder="<ruby>你<rt>nei5</rt>…</ruby>"
+        />
+      </section>
+
+      <section className="panel preview-panel">
+        <div className="panel-head">
+          <h2>Preview</h2>
+        </div>
+        {previewTokens.length > 0 ? (
+          <div className="preview" lang="zh-Hant">
+            {renderTokens(previewTokens)}
+          </div>
+        ) : (
+          <div className="empty">Paste ruby HTML above to see the preview.</div>
+        )}
+      </section>
+
+      <div className="outputs">
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Chinese characters</h2>
+            <CopyButton text={chinese} label="Copy Chinese" />
+          </div>
+          {chinese ? (
+            <p className="output" lang="zh-Hant">{chinese}</p>
+          ) : (
+            <div className="empty">—</div>
+          )}
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Jyutping</h2>
+            <CopyButton text={jyutping} label="Copy jyutping" />
+          </div>
+          {jyutping ? (
+            <p className="output">{jyutping}</p>
+          ) : (
+            <div className="empty">—</div>
+          )}
+        </section>
+      </div>
+    </>
+  )
+}
+
+export default function App() {
+  const [mode, setMode] = useState<Mode>('compose')
+
+  return (
+    <div className="app">
+      <header className="masthead">
+        <div className="wordmark">
+          <span className="seal" aria-hidden="true">粵</span>
+          <div className="wordmark-text">
+            <h1>Rubiculator</h1>
+            <p className="subtitle">Cantonese jyutping ruby typesetting</p>
+          </div>
+        </div>
+
+        <div className="mode-toggle" role="tablist" aria-label="Mode">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'compose'}
+            className={mode === 'compose' ? 'active' : ''}
+            onClick={() => setMode('compose')}
+          >
+            Compose <span className="mode-sub">漢字 → 注音</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'extract'}
+            className={mode === 'extract' ? 'active' : ''}
+            onClick={() => setMode('extract')}
+          >
+            Extract <span className="mode-sub">注音 → 漢字</span>
+          </button>
+        </div>
+      </header>
+
+      {mode === 'compose' ? <ComposeView /> : <ExtractView />}
 
       <footer className="site-footer">
         Runs entirely in your browser · no data leaves this page

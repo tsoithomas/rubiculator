@@ -87,6 +87,88 @@ export function convert(chinese: string, jyutping: string): ConversionResult {
   return { tokens, hanCount, syllableCount: syllables.length }
 }
 
+export interface ExtractResult {
+  /** Reconstructed Chinese text (base characters + literal punctuation, in order). */
+  chinese: string
+  /** Space-separated jyutping syllables, with punctuation mirrored from the source. */
+  jyutping: string
+  /** Number of <ruby> elements found (0 means the input had no ruby markup). */
+  rubyCount: number
+}
+
+type JyutItem = { kind: 'syl' | 'punc'; text: string }
+
+const WHITESPACE_WITH_NEWLINE = /^\s*\n\s*$/
+
+/**
+ * Reverse of {@link convert}: parse ruby HTML back into its component Chinese
+ * characters and jyutping. The jyutping line mirrors the punctuation that sits
+ * between ruby groups (e.g. "... toi4， m4 hou2 hip3 aa3。").
+ */
+export function parseRubyHtml(html: string): ExtractResult {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+
+  let chinese = ''
+  const jyut: JyutItem[] = []
+
+  const walk = (node: Node, inRuby: boolean) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        const text = child.textContent ?? ''
+        // Skip pretty-print formatting (whitespace-only nodes containing a newline).
+        if (WHITESPACE_WITH_NEWLINE.test(text)) continue
+        chinese += text
+        // Literal text outside a ruby is punctuation to mirror into the jyutping line.
+        if (!inRuby) jyut.push({ kind: 'punc', text })
+        continue
+      }
+      if (child.nodeType !== Node.ELEMENT_NODE) continue
+
+      const el = child as Element
+      const tag = el.tagName.toLowerCase()
+      if (tag === 'rt') {
+        jyut.push({ kind: 'syl', text: el.textContent ?? '' })
+      } else if (tag === 'rp') {
+        // Ruby fallback parentheses — ignore.
+        continue
+      } else if (tag === 'rb') {
+        chinese += el.textContent ?? ''
+      } else if (tag === 'ruby') {
+        walk(el, true)
+      } else {
+        walk(el, inRuby)
+      }
+    }
+  }
+
+  walk(doc.body, false)
+
+  // Format the jyutping: syllables space-separated; punctuation attaches to the
+  // preceding token with no leading space, and the next syllable re-adds a space.
+  let jyutping = ''
+  for (const item of jyut) {
+    if (item.kind === 'syl') {
+      const syl = item.text.trim()
+      if (!syl) continue
+      if (jyutping && !jyutping.endsWith(' ')) jyutping += ' '
+      jyutping += syl
+    } else {
+      const punc = item.text.trim()
+      if (punc) {
+        jyutping += punc
+      } else if (jyutping && !jyutping.endsWith(' ')) {
+        jyutping += ' '
+      }
+    }
+  }
+
+  return {
+    chinese,
+    jyutping,
+    rubyCount: doc.body.querySelectorAll('ruby').length,
+  }
+}
+
 /** Escape characters that are special in HTML text content. */
 export function escapeHtml(text: string): string {
   return text
