@@ -100,6 +100,22 @@ type JyutItem = { kind: 'syl' | 'punc'; text: string }
 
 const WHITESPACE_WITH_NEWLINE = /^\s*\n\s*$/
 
+/** Map common fullwidth / CJK punctuation to its halfwidth Latin equivalent. */
+const FULLWIDTH_TO_HALFWIDTH: Record<string, string> = {
+  '，': ',', '、': ',', '。': '.', '．': '.', '；': ';', '：': ':',
+  '？': '?', '！': '!', '（': '(', '）': ')', '【': '[', '】': ']',
+  '〔': '(', '〕': ')', '《': '<', '》': '>', '〈': '<', '〉': '>',
+  '「': '"', '」': '"', '『': '"', '』': '"', '“': '"', '”': '"',
+  '‘': "'", '’': "'", '～': '~', '－': '-', '％': '%', '　': ' ',
+}
+
+/** Convert fullwidth/CJK punctuation in a string to halfwidth Latin punctuation. */
+export function toHalfwidthPunctuation(text: string): string {
+  let out = ''
+  for (const ch of text) out += FULLWIDTH_TO_HALFWIDTH[ch] ?? ch
+  return out
+}
+
 /**
  * Reverse of {@link convert}: parse ruby HTML back into its component Chinese
  * characters and jyutping. The jyutping line mirrors the punctuation that sits
@@ -153,7 +169,7 @@ export function parseRubyHtml(html: string): ExtractResult {
       if (jyutping && !jyutping.endsWith(' ')) jyutping += ' '
       jyutping += syl
     } else {
-      const punc = item.text.trim()
+      const punc = toHalfwidthPunctuation(item.text.trim())
       if (punc) {
         jyutping += punc
       } else if (jyutping && !jyutping.endsWith(' ')) {

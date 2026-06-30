@@ -91,9 +91,9 @@ describe('parseRubyHtml', () => {
     const html = tokensToHtmlString(convert(CHINESE, JYUTPING).tokens)
     const out = parseRubyHtml(html)
     expect(out.chinese).toBe(CHINESE)
-    // Punctuation is mirrored from the HTML (fullwidth, as produced by convert).
+    // Punctuation is mirrored from the HTML, converted to halfwidth Latin.
     expect(out.jyutping).toBe(
-      'nei5 haang4 dak1 soeng5 toi4， m4 hou2 hip3 aa3。',
+      'nei5 haang4 dak1 soeng5 toi4, m4 hou2 hip3 aa3.',
     )
     expect(out.rubyCount).toBe(2)
   })
@@ -109,7 +109,7 @@ describe('parseRubyHtml', () => {
       '<ruby>你<rt>nei5</rt>好<rt>hou2</rt></ruby>，<ruby>嗎<rt>maa3</rt></ruby>？',
     )
     expect(out.chinese).toBe('你好，嗎？')
-    expect(out.jyutping).toBe('nei5 hou2， maa3？')
+    expect(out.jyutping).toBe('nei5 hou2, maa3?')
     expect(out.rubyCount).toBe(2)
   })
 

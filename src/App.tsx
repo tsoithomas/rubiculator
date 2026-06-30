@@ -290,7 +290,7 @@ export default function App() {
         <div className="wordmark">
           <span className="seal" aria-hidden="true">粵</span>
           <div className="wordmark-text">
-            <h1>Rubiculator</h1>
+            <h1>Rubyculator</h1>
             <p className="subtitle">Cantonese jyutping ruby typesetting</p>
           </div>
         </div>
@@ -303,7 +303,7 @@ export default function App() {
             className={mode === 'compose' ? 'active' : ''}
             onClick={() => setMode('compose')}
           >
-            Compose <span className="mode-sub">漢字 → 注音</span>
+            Compose <span className="mode-sub">漢字 → 粵拼</span>
           </button>
           <button
             type="button"
@@ -312,7 +312,7 @@ export default function App() {
             className={mode === 'extract' ? 'active' : ''}
             onClick={() => setMode('extract')}
           >
-            Extract <span className="mode-sub">注音 → 漢字</span>
+            Extract <span className="mode-sub">粵拼 → 漢字</span>
           </button>
         </div>
       </header>

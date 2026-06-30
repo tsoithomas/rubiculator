@@ -72,6 +72,11 @@ body {
 
 /* ---------- Masthead ---------- */
 .masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.25rem;
   padding-bottom: 1.6rem;
   margin-bottom: 2rem;
   border-bottom: 1px solid var(--glass-border);
@@ -120,7 +125,6 @@ body {
 /* ---------- Mode toggle ---------- */
 .mode-toggle {
   display: inline-flex;
-  margin-top: 1.4rem;
   padding: 4px;
   gap: 4px;
   background: var(--glass);
