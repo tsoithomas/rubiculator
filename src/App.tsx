@@ -1,73 +1,34 @@
-import { Fragment, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   convert,
   parseRubyHtml,
   tokensToHtmlString,
-  type Token,
+  tokensToStyledHtmlString,
 } from './lib/convert'
+import { DEFAULT_RUBY_STYLE, type RubyStyleConfig } from './lib/rubyStyle'
+import { StylePanel } from './StylePanel'
+import { PreviewDock, clampDockHeight } from './PreviewDock'
+import { CopyButton } from './CopyButton'
 
 type Mode = 'compose' | 'extract'
+
+/** Shared preview-dock UI state, lifted to App so it persists across modes. */
+interface DockProps {
+  minimized: boolean
+  height: number
+  onToggleMinimize: () => void
+  onHeightChange: (h: number) => void
+}
+
+/** Approx. header + gap above the dock body, so page content clears the dock. */
+const DOCK_CHROME = 96
+const DOCK_COLLAPSED = 60
 
 const EXAMPLE_CHINESE = '你行得上台，唔好怯呀。'
 const EXAMPLE_JYUTPING = 'nei5 haang4 dak1 soeng5 toi4, m4 hou2 hip3 aa3.'
 const EXAMPLE_HTML = tokensToHtmlString(
   convert(EXAMPLE_CHINESE, EXAMPLE_JYUTPING).tokens,
 )
-
-/** Render the token list as real React nodes for the live preview. */
-function renderTokens(tokens: Token[]) {
-  return tokens.map((token, i) => {
-    if (token.type === 'text') {
-      return <Fragment key={i}>{token.value}</Fragment>
-    }
-    return (
-      <ruby key={i}>
-        {token.pairs.map(({ base, annotation }, j) => (
-          <Fragment key={j}>
-            {base}
-            {annotation && (
-              <>
-                <rp>(</rp>
-                <rt>{annotation}</rt>
-                <rp>)</rp>
-              </>
-            )}
-          </Fragment>
-        ))}
-      </ruby>
-    )
-  })
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <path
-        d="M13.5 4.5 6.5 11.5 2.5 7.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
-function CopyIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-      <rect
-        x="5.5" y="5.5" width="8" height="8" rx="1.5"
-        fill="none" stroke="currentColor" strokeWidth="1.5"
-      />
-      <path
-        d="M10.5 5.5V3.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3.5V9A1.5 1.5 0 0 0 4 10.5h1.5"
-        fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
-      />
-    </svg>
-  )
-}
 
 function WarnIcon() {
   return (
@@ -82,51 +43,27 @@ function WarnIcon() {
   )
 }
 
-/** Icon-only copy button that owns its own transient "copied" state. */
-function CopyButton({ text, label }: { text: string; label: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // Fallback for environments without the async clipboard API.
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      document.execCommand('copy')
-      document.body.removeChild(ta)
-    }
-    setCopied(true)
-    window.setTimeout(() => setCopied(false), 1500)
-  }
-
-  return (
-    <button
-      type="button"
-      className={`copy-btn${copied ? ' is-copied' : ''}`}
-      onClick={handleCopy}
-      disabled={!text}
-      aria-label={copied ? 'Copied to clipboard' : label}
-      title={copied ? 'Copied' : label}
-    >
-      {copied ? <CheckIcon /> : <CopyIcon />}
-    </button>
-  )
-}
-
-function ComposeView() {
+function ComposeView({
+  config,
+  dock,
+}: {
+  config: RubyStyleConfig
+  dock: DockProps
+}) {
   const [chinese, setChinese] = useState(EXAMPLE_CHINESE)
   const [jyutping, setJyutping] = useState(EXAMPLE_JYUTPING)
+  const [htmlMode, setHtmlMode] = useState<'styled' | 'plain'>('styled')
 
   const { tokens, hanCount, syllableCount } = useMemo(
     () => convert(chinese, jyutping),
     [chinese, jyutping],
   )
-  const html = useMemo(() => tokensToHtmlString(tokens), [tokens])
+  const plainHtml = useMemo(() => tokensToHtmlString(tokens), [tokens])
+  const styledHtml = useMemo(
+    () => tokensToStyledHtmlString(tokens, config),
+    [tokens, config],
+  )
+  const html = htmlMode === 'styled' ? styledHtml : plainHtml
   const mismatch = hanCount !== syllableCount
 
   return (
@@ -176,23 +113,32 @@ function ComposeView() {
         </div>
       )}
 
-      <section className="panel preview-panel">
-        <div className="panel-head">
-          <h2>Preview</h2>
-        </div>
-        {tokens.length > 0 ? (
-          <div className="preview" lang="zh-Hant">
-            {renderTokens(tokens)}
-          </div>
-        ) : (
-          <div className="empty">Enter text above to see the preview.</div>
-        )}
-      </section>
-
       <section className="panel">
         <div className="panel-head">
           <h2>HTML</h2>
-          <CopyButton text={html} label="Copy HTML" />
+          <div className="panel-head-actions">
+            <div className="segmented segmented-sm" role="tablist" aria-label="HTML output">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={htmlMode === 'styled'}
+                className={htmlMode === 'styled' ? 'active' : ''}
+                onClick={() => setHtmlMode('styled')}
+              >
+                Styled
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={htmlMode === 'plain'}
+                className={htmlMode === 'plain' ? 'active' : ''}
+                onClick={() => setHtmlMode('plain')}
+              >
+                Plain
+              </button>
+            </div>
+            <CopyButton text={html} label="Copy HTML" />
+          </div>
         </div>
         {html ? (
           <pre className="code">
@@ -202,11 +148,24 @@ function ComposeView() {
           <div className="empty">The generated markup will appear here.</div>
         )}
       </section>
+
+      <PreviewDock
+        tokens={tokens}
+        config={config}
+        emptyMessage="Enter text above to see the preview."
+        {...dock}
+      />
     </>
   )
 }
 
-function ExtractView() {
+function ExtractView({
+  config,
+  dock,
+}: {
+  config: RubyStyleConfig
+  dock: DockProps
+}) {
   const [htmlInput, setHtmlInput] = useState(EXAMPLE_HTML)
 
   const { chinese, jyutping, rubyCount } = useMemo(
@@ -239,19 +198,6 @@ function ExtractView() {
         />
       </section>
 
-      <section className="panel preview-panel">
-        <div className="panel-head">
-          <h2>Preview</h2>
-        </div>
-        {previewTokens.length > 0 ? (
-          <div className="preview" lang="zh-Hant">
-            {renderTokens(previewTokens)}
-          </div>
-        ) : (
-          <div className="empty">Paste ruby HTML above to see the preview.</div>
-        )}
-      </section>
-
       <div className="outputs">
         <section className="panel">
           <div className="panel-head">
@@ -277,15 +223,39 @@ function ExtractView() {
           )}
         </section>
       </div>
+
+      <PreviewDock
+        tokens={previewTokens}
+        config={config}
+        emptyMessage="Paste ruby HTML above to see the preview."
+        {...dock}
+      />
     </>
   )
 }
 
 export default function App() {
   const [mode, setMode] = useState<Mode>('compose')
+  const [styleConfig, setStyleConfig] = useState<RubyStyleConfig>(
+    DEFAULT_RUBY_STYLE,
+  )
+  const [previewMinimized, setPreviewMinimized] = useState(false)
+  const [previewHeight, setPreviewHeight] = useState(240)
+
+  const dock: DockProps = {
+    minimized: previewMinimized,
+    height: previewHeight,
+    onToggleMinimize: () => setPreviewMinimized((v) => !v),
+    onHeightChange: (h) => setPreviewHeight(clampDockHeight(h)),
+  }
+
+  // Reserve space so the fixed dock never covers the page's own content.
+  const appPaddingBottom = previewMinimized
+    ? DOCK_COLLAPSED
+    : previewHeight + DOCK_CHROME
 
   return (
-    <div className="app">
+    <div className="app" style={{ paddingBottom: appPaddingBottom }}>
       <header className="masthead">
         <div className="wordmark">
           <span className="seal" aria-hidden="true">粵</span>
@@ -317,7 +287,13 @@ export default function App() {
         </div>
       </header>
 
-      {mode === 'compose' ? <ComposeView /> : <ExtractView />}
+      <StylePanel config={styleConfig} onChange={setStyleConfig} />
+
+      {mode === 'compose' ? (
+        <ComposeView config={styleConfig} dock={dock} />
+      ) : (
+        <ExtractView config={styleConfig} dock={dock} />
+      )}
 
       <footer className="site-footer">
         Runs entirely in your browser · no data leaves this page

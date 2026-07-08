@@ -4,8 +4,10 @@ import {
   parseJyutping,
   parseRubyHtml,
   tokensToHtmlString,
+  tokensToStyledHtmlString,
   escapeHtml,
 } from './convert'
+import { DEFAULT_RUBY_STYLE } from './rubyStyle'
 
 const CHINESE = '你行得上台，唔好怯呀。'
 const JYUTPING = 'nei5 haang4 dak1 soeng5 toi4, m4 hou2 hip3 aa3.'
@@ -131,5 +133,67 @@ describe('parseRubyHtml', () => {
     )
     expect(out.chinese).toBe('你好')
     expect(out.jyutping).toBe('nei5 hou2')
+  })
+
+  it('skips embedded <style> so a styled export round-trips cleanly', () => {
+    const styled = tokensToStyledHtmlString(
+      convert(CHINESE, JYUTPING).tokens,
+      DEFAULT_RUBY_STYLE,
+    )
+    const out = parseRubyHtml(styled)
+    expect(out.chinese).toBe(CHINESE)
+    expect(out.jyutping).toBe('nei5 haang4 dak1 soeng5 toi4, m4 hou2 hip3 aa3.')
+    // The CSS text inside <style> must not leak into the extracted content.
+    expect(out.chinese).not.toContain('font-family')
+    expect(out.jyutping).not.toContain('font-family')
+  })
+})
+
+describe('tokensToStyledHtmlString', () => {
+  it('wraps the exact plain-mode body in a scoped, self-contained container', () => {
+    const { tokens } = convert(CHINESE, JYUTPING)
+    const styled = tokensToStyledHtmlString(tokens, DEFAULT_RUBY_STYLE)
+    const body = tokensToHtmlString(tokens)
+    expect(styled.startsWith(
+      '<div class="rubyculator-ruby" lang="zh-Hant" data-rb-position="over"><style>',
+    )).toBe(true)
+    expect(styled.endsWith(`</style>${body}</div>`)).toBe(true)
+  })
+
+  it('emits one fixed-width column per base character', () => {
+    const { tokens } = convert('你好', 'nei5 hou2')
+    const styled = tokensToStyledHtmlString(tokens, {
+      ...DEFAULT_RUBY_STYLE,
+      align: 'fixed-width',
+    })
+    const cols = styled.match(/<span class="ruby-col">/g)
+    expect(cols).toHaveLength(2)
+    expect(styled).toContain('.rubyculator-ruby .ruby-col')
+  })
+
+  it('splits each annotation into per-letter spans with no whitespace between them', () => {
+    const { tokens } = convert('你', 'nei5')
+    const styled = tokensToStyledHtmlString(tokens, {
+      ...DEFAULT_RUBY_STYLE,
+      align: 'spread',
+    })
+    expect(styled).toContain(
+      '<rt class="rt-spread"><span class="rt-row">' +
+        '<span>n</span><span>e</span><span>i</span><span>5</span></span></rt>',
+    )
+  })
+
+  it('sanitizes a hostile custom font-family so it cannot break out of <style>', () => {
+    const { tokens } = convert('你', 'nei5')
+    const styled = tokensToStyledHtmlString(tokens, {
+      ...DEFAULT_RUBY_STYLE,
+      base: {
+        ...DEFAULT_RUBY_STYLE.base,
+        fontFamily: '</style><script>alert(1)</script>',
+      },
+    })
+    expect(styled).not.toContain('</style><script>')
+    // Only the intended closing tag (before the body) should appear.
+    expect(styled.match(/<\/style>/g)).toHaveLength(1)
   })
 })

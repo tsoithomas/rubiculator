@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/lib/convert.test.ts","./src/lib/convert.ts"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/copybutton.tsx","./src/previewdock.tsx","./src/stylepanel.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/lib/convert.test.ts","./src/lib/convert.ts","./src/lib/rubystyle.test.ts","./src/lib/rubystyle.ts"],"version":"5.9.3"}

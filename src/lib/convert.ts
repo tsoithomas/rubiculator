@@ -1,6 +1,13 @@
 // Pure, framework-agnostic conversion from (Chinese text, jyutping text)
 // into a token list that can be serialized to an HTML string or to React nodes.
 
+import {
+  resolveRubyStyle,
+  type RubyAlignMode,
+  type RubyStyleConfig,
+  type ResolvedRubyStyle,
+} from './rubyStyle'
+
 /** A single Han character paired with its jyutping annotation (annotation may be empty if syllables ran out). */
 export interface RubyPair {
   base: string
@@ -142,7 +149,10 @@ export function parseRubyHtml(html: string): ExtractResult {
 
       const el = child as Element
       const tag = el.tagName.toLowerCase()
-      if (tag === 'rt') {
+      if (tag === 'style' || tag === 'script') {
+        // Never treat embedded CSS/script text as document content.
+        continue
+      } else if (tag === 'rt') {
         jyut.push({ kind: 'syl', text: el.textContent ?? '' })
       } else if (tag === 'rp') {
         // Ruby fallback parentheses — ignore.
@@ -193,26 +203,137 @@ export function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
 }
 
+type RubyBodyMode = 'plain' | 'fixed-width' | 'spread'
+
+/** Render one annotation's <rp>/<rt>/<rp> markup, splitting into per-letter
+ *  <span>s (with no whitespace between them) when mode is 'spread'. */
+function renderAnnotation(annotation: string, mode: RubyBodyMode): string {
+  if (mode === 'spread') {
+    // Inner ".rt-row" carries the flex; the <rt> itself keeps its native
+    // display:ruby-text so the annotation still sits over/under the base.
+    const spans = [...annotation]
+      .map((ch) => `<span>${escapeHtml(ch)}</span>`)
+      .join('')
+    return `<rp>(</rp><rt class="rt-spread"><span class="rt-row">${spans}</span></rt><rp>)</rp>`
+  }
+  return `<rp>(</rp><rt>${escapeHtml(annotation)}</rt><rp>)</rp>`
+}
+
 /**
  * Serialize tokens to an HTML string, with punctuation outside <ruby> and
  * <rp> fallback parentheses around each annotation. Characters without an
  * annotation (when syllables ran out) are emitted as a bare base.
+ *
+ * In 'fixed-width'/'spread' mode, each base/annotation pair gets its own
+ * <ruby> wrapped in a fixed-width ".ruby-col" column (instead of one <ruby>
+ * per contiguous Han run), so per-character columns can be styled evenly.
  */
-export function tokensToHtmlString(tokens: Token[]): string {
+function buildRubyBody(tokens: Token[], mode: RubyBodyMode): string {
   let html = ''
   for (const token of tokens) {
     if (token.type === 'text') {
       html += escapeHtml(token.value)
       continue
     }
-    html += '<ruby>'
-    for (const { base, annotation } of token.pairs) {
-      html += escapeHtml(base)
-      if (annotation) {
-        html += `<rp>(</rp><rt>${escapeHtml(annotation)}</rt><rp>)</rp>`
+    if (mode === 'plain') {
+      html += '<ruby>'
+      for (const { base, annotation } of token.pairs) {
+        html += escapeHtml(base)
+        if (annotation) html += renderAnnotation(annotation, mode)
+      }
+      html += '</ruby>'
+    } else {
+      for (const { base, annotation } of token.pairs) {
+        html += '<span class="ruby-col"><ruby>'
+        html += escapeHtml(base)
+        if (annotation) html += renderAnnotation(annotation, mode)
+        html += '</ruby></span>'
       }
     }
-    html += '</ruby>'
   }
   return html
+}
+
+export function tokensToHtmlString(tokens: Token[]): string {
+  return buildRubyBody(tokens, 'plain')
+}
+
+/** Builds the self-contained <style> block for {@link tokensToStyledHtmlString}. */
+function buildStyleBlock(
+  scopeClass: string,
+  resolved: ResolvedRubyStyle,
+  align: RubyAlignMode,
+): string {
+  const gapRule =
+    resolved.rubyPosition === 'under'
+      ? `margin-top: ${resolved.rtGap}; margin-bottom: 0;`
+      : `margin-bottom: ${resolved.rtGap}; margin-top: 0;`
+
+  let css = `
+.${scopeClass} {
+  font-family: ${resolved.baseFontFamily};
+  font-size: ${resolved.baseFontSize};
+  font-weight: ${resolved.baseFontWeight};
+  letter-spacing: ${resolved.baseLetterSpacing};
+  line-height: ${resolved.baseLineHeight};
+  color: ${resolved.baseColor};
+}
+.${scopeClass} ruby {
+  ruby-position: ${resolved.rubyPosition};
+  ruby-align: ${resolved.rubyAlign};
+  margin: 0 0.02em;
+}
+.${scopeClass} rt {
+  font-family: ${resolved.rtFontFamily};
+  font-size: ${resolved.rtFontSize};
+  font-weight: ${resolved.rtFontWeight};
+  letter-spacing: ${resolved.rtLetterSpacing};
+  color: ${resolved.rtColor};
+  ${gapRule}
+}`
+
+  if (align === 'fixed-width' || align === 'spread') {
+    css += `
+.${scopeClass} .ruby-col {
+  display: inline-block;
+  width: ${resolved.colWidth};
+  text-align: center;
+}
+.${scopeClass} .ruby-col ruby {
+  margin: 0;
+}`
+  }
+
+  if (align === 'spread') {
+    css += `
+.${scopeClass} rt.rt-spread .rt-row {
+  display: inline-flex;
+  width: ${resolved.colWidth};
+  justify-content: space-between;
+}`
+  }
+
+  return css
+}
+
+/**
+ * Serialize tokens to a self-contained, styled HTML string: a scoped <style>
+ * block reflecting {@link config} followed by the ruby markup, so the output
+ * can be pasted elsewhere with no dependency on this app's own CSS.
+ */
+export function tokensToStyledHtmlString(
+  tokens: Token[],
+  config: RubyStyleConfig,
+  scopeClass = 'rubyculator-ruby',
+): string {
+  const resolved = resolveRubyStyle(config)
+  const bodyMode: RubyBodyMode =
+    config.align === 'fixed-width'
+      ? 'fixed-width'
+      : config.align === 'spread'
+        ? 'spread'
+        : 'plain'
+  const body = buildRubyBody(tokens, bodyMode)
+  const style = buildStyleBlock(scopeClass, resolved, config.align)
+  return `<div class="${scopeClass}" lang="zh-Hant" data-rb-position="${resolved.rubyPosition}"><style>${style}</style>${body}</div>`
 }
